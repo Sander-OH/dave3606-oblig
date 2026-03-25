@@ -30,7 +30,7 @@ def sets():
     if encoding not in ("utf-8", "utf-16"):
         encoding = "utf-8"
 
-    with open("templates/sets.html") as f:
+    with open("templates/sets.html") as f:      # "With open" ensures that the file is properly closed after usage
         template = f.read()
 
     rows_list = []

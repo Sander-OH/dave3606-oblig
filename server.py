@@ -1,5 +1,6 @@
 import json
 import html
+import gzip
 import psycopg
 from flask import Flask, Response, request
 from time import perf_counter
@@ -17,14 +18,21 @@ DB_CONFIG = {
 
 @app.route("/")
 def index():
-    template = open("templates/index.html").read()
+    with open("templates/index.html") as f:
+        template = f.read()
     return Response(template)
 
 
 @app.route("/sets")
 def sets():
-    template = open("templates/sets.html").read()
-    rows = ""
+    encoding = request.args.get("encoding", "utf-8").lower()
+    if encoding not in ("utf-8", "utf-16"):
+        encoding = "utf-8"
+
+    with open("templates/sets.html") as f:      # "With open" ensures that the file is properly closed after usage
+        template = f.read()
+
+    rows_list = []
 
     start_time = perf_counter()
     conn = psycopg.connect(**DB_CONFIG)
@@ -34,19 +42,42 @@ def sets():
             for row in cur.fetchall():
                 html_safe_id = html.escape(row[0])
                 html_safe_name = html.escape(row[1])
-                existing_rows = rows
-                rows = existing_rows + f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td><td>{html_safe_name}</td></tr>\n'
+
+                rows_list.append(
+                    f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td>'
+                    f'<td>{html_safe_name}</td></tr>\n'
+                )
+
+        rows = "".join(rows_list)
+
         print(f"Time to render all sets: {perf_counter() - start_time}")
     finally:
         conn.close()
 
-    page_html = template.replace("{ROWS}", rows)
-    return Response(page_html, content_type="text/html")
+    if encoding == "utf-8":
+        meta = '<meta charset="UTF-8">'
+    else:
+        meta = ""
+
+    page_html = template.replace("{META}", meta).replace("{ROWS}", rows)
+
+    body = page_html.encode(encoding)
+
+    compressed_body = gzip.compress(body)
+
+    response = Response(
+        compressed_body,
+        content_type=f"text/html; charset={encoding}"
+    )
+    response.headers["Content-Encoding"] = "gzip"
+
+    return response
 
 
 @app.route("/set")
 def legoSet():  # We don't want to call the function `set`, since that would hide the `set` data type.
-    template = open("templates/set.html").read()
+    with open("templates/set.html") as f:
+        template = f.read()
     return Response(template)
 
 

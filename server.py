@@ -5,6 +5,11 @@ import struct
 import psycopg
 from flask import Flask, Response, request
 from time import perf_counter
+from collections import OrderedDict
+
+cache = OrderedDict()
+MAX_CACHE = 100
+
 
 app = Flask(__name__)
 
@@ -68,7 +73,8 @@ def sets():
 
     response = Response(
         compressed_body,
-        content_type=f"text/html; charset={encoding}"
+        content_type=f"text/html; charset={encoding}",
+        headers={"Cache-Control": "max-age=60"} # Cache page for 1 minute (browser cache)
     )
     response.headers["Content-Encoding"] = "gzip"
 
@@ -85,6 +91,10 @@ def legoSet():  # We don't want to call the function `set`, since that would hid
 @app.route("/api/set")
 def apiSet():
     set_id = request.args.get("id")
+
+    if set_id in cache: # Check if this set is in the cache
+        cache.move_to_end(set_id)
+        return cache[set_id]
 
     conn = psycopg.connect(**DB_CONFIG)
     try:
@@ -136,10 +146,15 @@ def apiSet():
         "inventory": inventory
     }
 
+    cache[set_id] = result
+    if len(cache) > MAX_CACHE:  # Drop Least Recently Used (LRU) if cache is full
+        cache.popitem(last=False)
+
     return Response(
         json.dumps(result, indent=4),
         content_type="application/json"
     )
+
 
 def pack_string(s: str) -> bytes:
     """Helper: packs string as [length][bytes]"""

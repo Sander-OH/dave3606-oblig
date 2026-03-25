@@ -1,6 +1,7 @@
 import json
 import html
 import gzip
+import struct
 import psycopg
 from flask import Flask, Response, request
 from time import perf_counter
@@ -84,10 +85,128 @@ def legoSet():  # We don't want to call the function `set`, since that would hid
 @app.route("/api/set")
 def apiSet():
     set_id = request.args.get("id")
-    result = {"set_id": set_id}
-    json_result = json.dumps(result, indent=4)
-    return Response(json_result, content_type="application/json")
 
+    conn = psycopg.connect(**DB_CONFIG)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, name, year, category, preview_image_url
+                FROM lego_set
+                WHERE id = %s
+            """, (set_id,))
+            set_row = cur.fetchone()
+
+            if not set_row:
+                return Response("Set not found", status=404)
+
+            cur.execute("""
+                SELECT
+                    b.brick_type_id,
+                    b.color_id,
+                    b.name,
+                    b.preview_image_url,
+                    i.count
+                FROM lego_inventory i
+                JOIN lego_brick b
+                ON i.brick_type_id = b.brick_type_id
+                AND i.color_id = b.color_id
+                WHERE i.set_id = %s
+                ORDER BY b.brick_type_id, b.color_id
+            """, (set_id,))
+
+            inventory = []
+            for brick_type_id, color_id, name, image_url, count in cur.fetchall():
+                inventory.append({
+                    "brick_type_id": brick_type_id,
+                    "color_id": color_id,
+                    "name": name,
+                    "image": image_url,
+                    "count": count
+                })
+
+    finally:
+        conn.close()
+
+    result = {
+        "id": set_row[0],
+        "name": set_row[1],
+        "year": set_row[2],
+        "category": set_row[3],
+        "image": set_row[4],
+        "inventory": inventory
+    }
+
+    return Response(
+        json.dumps(result, indent=4),
+        content_type="application/json"
+    )
+
+def pack_string(s: str) -> bytes:
+    """Helper: packs string as [length][bytes]"""
+    encoded = s.encode("utf-8")
+    return struct.pack("I", len(encoded)) + encoded
+
+
+@app.route("/api/set/bin")
+def apiSetBinary():
+    set_id = request.args.get("id")
+
+    conn = psycopg.connect(**DB_CONFIG)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, name, year, category, preview_image_url
+                FROM lego_set
+                WHERE id = %s
+            """, (set_id,))
+            set_row = cur.fetchone()
+
+            if not set_row:
+                return Response("Set not found", status=404)
+
+            cur.execute("""
+                SELECT
+                    b.brick_type_id,
+                    b.color_id,
+                    b.name,
+                    b.preview_image_url,
+                    i.count
+                FROM lego_inventory i
+                JOIN lego_brick b
+                ON i.brick_type_id = b.brick_type_id
+                AND i.color_id = b.color_id
+                WHERE i.set_id = %s
+                ORDER BY b.brick_type_id, b.color_id
+            """, (set_id,))
+
+            inventory_rows = cur.fetchall()
+
+    finally:
+        conn.close()
+
+
+    data = b""
+
+    data += pack_string(set_row[0])
+    data += pack_string(set_row[1])
+    data += struct.pack("I", int(set_row[2]))
+    data += pack_string(set_row[3] or "")
+    data += pack_string(set_row[4] or "")
+
+    data += struct.pack("I", len(inventory_rows))
+
+    for brick_type_id, color_id, name, image_url, count in inventory_rows:
+        data += pack_string(brick_type_id) 
+        data += struct.pack("I", int(color_id))
+        data += pack_string(name or "")
+        data += pack_string(image_url or "")
+        data += struct.pack("I", int(count))
+
+    return Response(
+        data,
+        content_type="application/octet-stream"
+    )
+                
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)

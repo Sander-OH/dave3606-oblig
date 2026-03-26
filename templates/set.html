@@ -27,15 +27,42 @@
             fetch(`/api/set?id=${setId}`)
                 .then(function(setData) { return setData.json(); })
                 .then(function(setJson) {
+
+                    document.getElementById("setName").textContent = setJson.name;
+                    document.getElementById("setId").textContent = setJson.id;
+                
                     const inventoryTable = document.getElementById("inventory");
-                    const inventoryRow = document.createElement("tr");
-                    inventoryRow.innerHTML = (
-                        "<td>Example row</td>" +
-                        "<td>to show how to</td>" +
-                        "<td>dynamically construct HTML</td>" +
-                        "<td>in JavaScript</td>"
-                    )
-                    inventoryTable.appendChild(inventoryRow);
+                    inventoryTable.innerHTML = ""; //Clear existing rows
+
+                    setJson.inventory.forEach(function(brick) {
+                        const row = document.createElement("tr");
+
+                        // Create cells safely (avoids XSS issues)
+                        const brickImageCell = document.createElement("td"); //Brick preview image
+                        const img = document.createElement("img");
+                        img.src = brick.image;
+                        img.alt = brick.name || "Brick image";
+                        img.style.width = "50px";
+                        brickImageCell.appendChild(img);
+
+                        const brickIdCell = document.createElement("td"); //Brick ID
+                        brickIdCell.textContent = brick.brick_type_id;
+
+                        const colorCell = document.createElement("td"); //Brick color ID
+                        colorCell.textContent = brick.color_id;
+
+                        const countCell = document.createElement("td"); //Brick count
+                        countCell.textContent = brick.count;
+
+                        // Append cells to row
+                        row.appendChild(brickImageCell);
+                        row.appendChild(brickIdCell);
+                        row.appendChild(colorCell);
+                        row.appendChild(countCell);
+
+                        // Append row to table
+                        inventoryTable.appendChild(row);
+                    });
                 })
                 .catch(function(err) {
                     document.getElementById("error").textContent = "Failed to load data: " + err;

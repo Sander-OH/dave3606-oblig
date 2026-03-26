@@ -5,6 +5,7 @@ import struct
 import psycopg
 from flask import Flask, Response, request
 from time import perf_counter
+from database import Database
 from collections import OrderedDict
 
 cache = OrderedDict()
@@ -41,24 +42,24 @@ def sets():
     rows_list = []
 
     start_time = perf_counter()
-    conn = psycopg.connect(**DB_CONFIG)
-    try:
-        with conn.cursor() as cur:
-            cur.execute("select id, name from lego_set order by id")
-            for row in cur.fetchall():
-                html_safe_id = html.escape(row[0])
-                html_safe_name = html.escape(row[1])
 
-                rows_list.append(
-                    f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td>'
-                    f'<td>{html_safe_name}</td></tr>\n'
-                )
+    db = Database(DB_CONFIG)
+    rows_data = db.execute_and_fetch_all(
+        "SELECT id, name FROM lego_set ORDER BY id"
+    )
 
-        rows = "".join(rows_list)
+    for row in rows_data:
+        html_safe_id = html.escape(row[0])
+        html_safe_name = html.escape(row[1])
 
-        print(f"Time to render all sets: {perf_counter() - start_time}")
-    finally:
-        conn.close()
+        rows_list.append(
+            f'<tr><td><a href="/set?id={html_safe_id}">{html_safe_id}</a></td>'
+            f'<td>{html_safe_name}</td></tr>\n'
+        )
+
+    rows = "".join(rows_list)
+    print(f"Time to render all sets: {perf_counter() - start_time}")
+    
 
     if encoding == "utf-8":
         meta = '<meta charset="UTF-8">'
@@ -92,50 +93,54 @@ def legoSet():  # We don't want to call the function `set`, since that would hid
 def apiSet():
     set_id = request.args.get("id")
 
-    if set_id in cache: # Check if this set is in the cache
+    # --- Cache ---
+    if set_id in cache:
         cache.move_to_end(set_id)
-        return cache[set_id]
+        return Response(
+            json.dumps(cache[set_id]),
+            content_type="application/json"
+        )
 
-    conn = psycopg.connect(**DB_CONFIG)
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, name, year, category, preview_image_url
-                FROM lego_set
-                WHERE id = %s
-            """, (set_id,))
-            set_row = cur.fetchone()
 
-            if not set_row:
-                return Response("Set not found", status=404)
+    db = Database(DB_CONFIG)
 
-            cur.execute("""
-                SELECT
-                    b.brick_type_id,
-                    b.color_id,
-                    b.name,
-                    b.preview_image_url,
-                    i.count
-                FROM lego_inventory i
-                JOIN lego_brick b
-                ON i.brick_type_id = b.brick_type_id
-                AND i.color_id = b.color_id
-                WHERE i.set_id = %s
-                ORDER BY b.brick_type_id, b.color_id
-            """, (set_id,))
+    # --- Get set ---
+    set_rows = db.execute_and_fetch_all("""
+        SELECT id, name, year, category, preview_image_url
+        FROM lego_set
+        WHERE id = %s
+    """, (set_id,))
 
-            inventory = []
-            for brick_type_id, color_id, name, image_url, count in cur.fetchall():
-                inventory.append({
-                    "brick_type_id": brick_type_id,
-                    "color_id": color_id,
-                    "name": name,
-                    "image": image_url,
-                    "count": count
-                })
+    if not set_rows:
+        return Response("Set not found", status=404)
 
-    finally:
-        conn.close()
+    set_row = set_rows[0]
+
+    # --- Get inventory ---
+    inventory_rows = db.execute_and_fetch_all("""
+        SELECT
+            b.brick_type_id,
+            b.color_id,
+            b.name,
+            b.preview_image_url,
+            i.count
+        FROM lego_inventory i
+        JOIN lego_brick b
+        ON i.brick_type_id = b.brick_type_id
+        AND i.color_id = b.color_id
+        WHERE i.set_id = %s
+        ORDER BY b.brick_type_id, b.color_id
+    """, (set_id,))
+
+    inventory = []
+    for brick_type_id, color_id, name, image_url, count in inventory_rows:
+        inventory.append({
+            "brick_type_id": brick_type_id,
+            "color_id": color_id,
+            "name": name,
+            "image": image_url,
+            "count": count
+        })
 
     result = {
         "id": set_row[0],
@@ -146,6 +151,7 @@ def apiSet():
         "inventory": inventory
     }
 
+    # --- Store in cache ---
     cache[set_id] = result
     if len(cache) > MAX_CACHE:  # Drop Least Recently Used (LRU) if cache is full
         cache.popitem(last=False)
@@ -166,38 +172,33 @@ def pack_string(s: str) -> bytes:
 def apiSetBinary():
     set_id = request.args.get("id")
 
-    conn = psycopg.connect(**DB_CONFIG)
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, name, year, category, preview_image_url
-                FROM lego_set
-                WHERE id = %s
-            """, (set_id,))
-            set_row = cur.fetchone()
+    db = Database(DB_CONFIG)
 
-            if not set_row:
-                return Response("Set not found", status=404)
+    set_rows = db.execute_and_fetch_all("""
+        SELECT id, name, year, category, preview_image_url
+        FROM lego_set
+        WHERE id = %s
+    """, (set_id,))
 
-            cur.execute("""
-                SELECT
-                    b.brick_type_id,
-                    b.color_id,
-                    b.name,
-                    b.preview_image_url,
-                    i.count
-                FROM lego_inventory i
-                JOIN lego_brick b
-                ON i.brick_type_id = b.brick_type_id
-                AND i.color_id = b.color_id
-                WHERE i.set_id = %s
-                ORDER BY b.brick_type_id, b.color_id
-            """, (set_id,))
+    if not set_rows:
+        return Response("Set not found", status=404)
 
-            inventory_rows = cur.fetchall()
+    set_row = set_rows[0]
 
-    finally:
-        conn.close()
+    inventory_rows = db.execute_and_fetch_all("""
+        SELECT
+            b.brick_type_id,
+            b.color_id,
+            b.name,
+            b.preview_image_url,
+            i.count
+        FROM lego_inventory i
+        JOIN lego_brick b
+        ON i.brick_type_id = b.brick_type_id
+        AND i.color_id = b.color_id
+        WHERE i.set_id = %s
+        ORDER BY b.brick_type_id, b.color_id
+    """, (set_id,))
 
 
     data = b""

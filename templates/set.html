@@ -34,7 +34,7 @@
                     const inventoryTable = document.getElementById("inventory");
                     inventoryTable.innerHTML = ""; //Clear existing rows
 
-                    setJson.bricks.forEach(function(brick) {
+                    setJson.inventory.forEach(function(brick) {
                         const row = document.createElement("tr");
 
                         // Create cells safely (avoids XSS issues)

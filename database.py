@@ -12,7 +12,7 @@ class Database:
         self.conn = psycopg.connect(**self.config)
         self.cursor = self.conn.cursor()
 
-    def execute_and_fetch_all(self, query, params=None):
+    def execute_and_fetch_all(self, query, params=None): #Executes the query and returns all results
         if self.conn is None or self.cursor is None:
             self.connect()
 

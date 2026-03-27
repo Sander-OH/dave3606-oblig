@@ -6,11 +6,15 @@ class Database:
         self.config = config
         self.conn = None
         self.cursor = None
+        self.connect()
 
+    def connect(self)
+        self.conn = psycopg.connect(**self.config)
+        self.cursor = self.conn.cursor()
 
     def execute_and_fetch_all(self, query, params=None):
-        self.conn = psycopg.connect(**self.config)
-        self.cursor = self.conn.cursor()  
+        if self.conn is None or self.cursor is None:
+            self.connect()
 
         if params:
             self.cursor.execute(query, params)
@@ -23,5 +27,7 @@ class Database:
     def close(self):
         if self.cursor:
             self.cursor.close()
+            self.cursor = None
         if self.conn:
             self.conn.close()
+            self.conn = None

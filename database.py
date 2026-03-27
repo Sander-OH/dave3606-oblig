@@ -8,7 +8,7 @@ class Database:
         self.cursor = None
         self.connect()
 
-    def connect(self)
+    def connect(self) #establishes a new connection
         self.conn = psycopg.connect(**self.config)
         self.cursor = self.conn.cursor()
 

@@ -24,7 +24,7 @@ class Database:
         return self.cursor.fetchall()
 
 
-    def close(self):
+    def close(self): #Closes the cursor and the connection
         if self.cursor:
             self.cursor.close()
             self.cursor = None

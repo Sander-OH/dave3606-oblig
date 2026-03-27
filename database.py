@@ -2,7 +2,7 @@ import psycopg
 
 class Database:
 
-    def __init__(self, config):
+    def __init__(self, config): #initializes the Database object
         self.config = config
         self.conn = None
         self.cursor = None
